@@ -1,0 +1,15 @@
+{
+    "EXP_NAME": "test_exp",
+    "T_LIST": [1, 2, 3, 7, 10],
+    "P_LIST": [0.364, 0.273, 0.182, 0.091, 0.091],
+    "NUM_LEVELS": 4,
+    "NUM_TIME_SLOTS": 1000,
+    "NEG_REWARD": -40,
+    "INPUT_SIZE": 40,
+    "NUM_EPISODES": 100000,
+    "LEARNING_RATE": 0.001,
+    "DISCOUNT_FACTOR": 0.99,
+    "NEG_REWARD_PROB": 1.0,
+    "TRAIN_CLEF": false,
+    "POS_CLEF_REWARD": 1000
+}
