@@ -1,40 +1,13 @@
 import sys
 import json
 import numpy as np
+from utils import ValidChecker
+from utils import render_traffic
 
 T_LIST = range(1, 101, 5)
-T_LIST = range(1, 11)
+T_LIST = range(1, 3)
 NUM_LEVELS = 4
-
-
-def is_detectable(traffic, T, t):
-    for start in range(
-            t - T * NUM_LEVELS + 1,
-            t - T * (NUM_LEVELS - 1) + 1):
-        probs = [0] * NUM_LEVELS
-        for i in range(start, start + NUM_LEVELS * T):
-            if i < 0:
-                continue
-            if i >= len(traffic):
-                break
-            if traffic[i] == 1:
-                probs[(i - start) / T] = 1
-            if (i - start + 1) % T == 0 and probs[(i - start) / T] == 0:
-                # (start, T) cannot detect this traffic
-                break
-        if sum(probs) == NUM_LEVELS:
-            return True
-    return False
-
-
-def render_traffic(traffic):
-    for i in range(0, len(traffic)):
-        if traffic[i] == 1:
-            print "%d ->\t [*]" % i
-        else:
-            print "%d ->\t [ ]" % i
-    print "rate = " + str(float(sum(traffic)) / len(traffic))
-
+NUM_DET_CYCLE = 10
 
 if __name__ == '__main__':
     config = None   # using default setting
@@ -48,24 +21,24 @@ if __name__ == '__main__':
         if "NUM_LEVELS" in config:
             NUM_LEVELS = config["NUM_LEVELS"]
 
+    checker = ValidChecker(T_LIST, NUM_LEVELS)
+
     max_T = max(T_LIST)
     max_rate = 0.
     max_traffic = []
     rate_sum = 0.
     tmp_traffic_sum = 0
     for k in range(1):
-        traffic = [0] * (max_T * NUM_LEVELS * 10)
+        traffic = [0] * (max_T * NUM_LEVELS * NUM_DET_CYCLE)
 
         for i in range(len(traffic)):
             if np.random.uniform() > 0.0:
                 traffic[i] = 1
                 tmp_traffic_sum += 1
                 # try all T and sliding window to see whether it is detected
-                for T in T_LIST:
-                    if is_detectable(traffic, T, i):
-                        traffic[i] = 0
-                        tmp_traffic_sum -= 1
-                        break
+                if checker.is_detectable_at_t(traffic, i):
+                    traffic[i] = 0
+                    tmp_traffic_sum -= 1
 
         rate = float(tmp_traffic_sum) / len(traffic)
         if max_rate < rate:
