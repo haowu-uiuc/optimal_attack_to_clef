@@ -5,7 +5,7 @@ from utils import ValidChecker
 from utils import render_traffic
 
 T_LIST = range(1, 101, 5)
-T_LIST = range(1, 3)
+T_LIST = range(1, 11)
 NUM_LEVELS = 4
 NUM_DET_CYCLE = 10
 

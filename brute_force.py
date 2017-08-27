@@ -1,70 +1,47 @@
 import sys
 import json
-import numpy as np
-from utils import ValidChecker
 from utils import render_traffic
+from utils import TrafficIterator
+from clef_env import ClefEnv
+import operator
+import os.path
 
-T_LIST = range(1, 6)
+T_LIST = range(1, 3)
 NUM_LEVELS = 4
-MAX_PERIOD = 20     # maximum period size to brute foce to
-
-
-class TrafficIterator:
-    def __init__(self, period, checker=None):
-        self.period = period
-        self.stack = list()
-        self.stack.append(1)    # the first slot of a period must be '1'
-        self.is_end = False
-        self.checker = checker
-        self._explore_forward()
-
-    def _explore_forward(self):
-        while len(self.stack) < self.period:
-            self.stack.append(1)
-            if self.checker is not None and\
-                    self.checker.is_detectable_at_t(
-                        self.stack, len(self.stack) - 1):
-                # skip detectable traffic at very beginning
-                self.stack.pop()
-                self.stack.append(0)
-
-    def _goto_next(self):
-        while len(self.stack) > 1 and self.stack[-1] == 0:
-            self.stack.pop()     # pop trailing zeros in the current branch
-        if len(self.stack) == 1:
-            # we have traversed all patterns
-            self.is_end = True
-            return
-
-        self.stack.pop()    # pop the last '1'
-        self.stack.append(0)
-        self._explore_forward()
-
-    def next(self):
-        if self.is_end is not True:
-            next_traffic = list(self.stack)
-            self._goto_next()
-            return next_traffic
-        return None
-
+MAX_PERIOD = 5     # maximum period size to brute foce to
+NUM_TEST_EPISODES = 1000
+THRESHOLD_RATE = 0.333333333333
+EXP_NAME = "test_bf_exp"
+OUTPUT_DIR = "."
 
 if __name__ == '__main__':
     config = None   # using default setting
     if len(sys.argv) == 3 and sys.argv[1] == "--config":
         with open(sys.argv[2]) as config_file:
             config = json.load(config_file)
+        OUTPUT_DIR = '/'.join(
+            os.path.abspath(config_file.name).split('/')[:-1])
 
     if config is not None:
         if "T_LIST" in config:
             T_LIST = config["T_LIST"]
         if "NUM_LEVELS" in config:
             NUM_LEVELS = config["NUM_LEVELS"]
+        if "THRESHOLD_RATE" in config:
+            THRESHOLD_RATE = config["THRESHOLD_RATE"]
+        if "MAX_PERIOD" in config:
+            MAX_PERIOD = config["MAX_PERIOD"]
+        if "EXP_NAME" in config:
+            EXP_NAME = config["EXP_NAME"]
+        if "NUM_TEST_EPISODES" in config:
+            NUM_TEST_EPISODES = config["NUM_TEST_EPISODES"]
 
     p = MAX_PERIOD
     T_max = max(T_LIST)
-    checker = ValidChecker(T_LIST, NUM_LEVELS)
-    max_rate = 0.
-    max_pattern = []
+    damages = dict()    # rate :-> (max damage at this rate, life_time)
+    max_life_times = dict()
+    patterns = dict()
+    detector = ClefEnv(config=config)
     # traverse the traffic pattern from MAX_PERIOD to 2
     # skip period p if there is a p' > p and p' % p == 0,
     # to avoid considering duplicated pattern
@@ -78,18 +55,55 @@ if __name__ == '__main__':
         if is_duplicate:
             continue
 
-        it = TrafficIterator(p, checker=checker)
+        it = TrafficIterator(p, checker=None)
         pattern = it.next()
         while pattern is not None:
-            num_periods = (NUM_LEVELS * T_max / p + 1) + 1
-            traffic = pattern * num_periods
-            # print "traffic: " + str(traffic)
-            if not checker.is_detectable(traffic, period=p):
-                rate = float(sum(pattern)) / p
-                if rate > max_rate:
-                    max_rate = rate
-                    max_pattern = pattern
+            print pattern
+            ave_volume = 0
+            ave_life_time = 0
+            for i in range(NUM_TEST_EPISODES):
+                # calculate the average traffic volume by repeated experiments
+                detector.reset()
+                d = False
+                t = 0
+                while d is not True:
+                    action = pattern[t % p]
+                    ave_volume += action
+                    t += 1
+                    _, _, d, _ = detector.step(action)
+                ave_life_time += t
+            ave_volume /= float(NUM_TEST_EPISODES)
+            ave_life_time /= float(NUM_TEST_EPISODES)
+            ave_damage = ave_volume - ave_life_time * THRESHOLD_RATE
+            print ave_life_time
+            print ave_volume
+            pattern_rate = sum(pattern) / float(p)
+            if pattern_rate not in damages:
+                damages[pattern_rate] = (ave_damage, ave_life_time)
+                patterns[pattern_rate] = pattern
+                max_life_times[pattern_rate] = ave_life_time
+            else:
+                if damages[pattern_rate][0] < ave_damage:
+                    damages[pattern_rate] = (ave_damage, ave_life_time)
+                    patterns[pattern_rate] = pattern
+                if max_life_times[pattern_rate] < ave_life_time:
+                    max_life_times[pattern_rate] = ave_life_time
             pattern = it.next()
 
-    print "max rate = %f" % max_rate
-    render_traffic(max_pattern)
+    sorted_damages = sorted(damages.items(), key=operator.itemgetter(0))
+    sorted_life_times = sorted(
+        max_life_times.items(), key=operator.itemgetter(0))
+    sorted_patterns = sorted(patterns.items(), key=operator.itemgetter(0))
+    print sorted_damages
+    with open(OUTPUT_DIR + "/bf_damage_" + EXP_NAME + ".txt", 'w') as f:
+        for rate, value in sorted_damages:
+            # rate, damage, life_time
+            f.write("%f\t%f\t%f\n" % (rate, value[0], value[1]))
+
+    with open(OUTPUT_DIR + "/bf_max_life_time_" + EXP_NAME + ".txt", 'w') as f:
+        for rate, life_time in sorted_life_times:
+            f.write(str(rate) + "\t" + str(life_time) + "\n")
+
+    with open(OUTPUT_DIR + "/bf_patterns_" + EXP_NAME + ".txt", 'w') as f:
+        for rate, pattern in sorted_patterns:
+            f.write(str(rate) + "\t" + pattern + "\n")
